@@ -35,6 +35,7 @@ class CochlearFilter_Roex_fft(nn.Module):
     for i in range(self.Hs.shape[0]):
       cochleagram.append(jnp.fft.ifft(self.Hs[i,:]*X).real)
     cochleagram = jnp.stack(cochleagram)
+    #cochleagram = cochleagram.transpose(1,0,2)
     return cochleagram
   
   def invert(self, x):
@@ -58,6 +59,7 @@ split_rngs={'params': False},  # Do not split random number generators
 methods=["__call__", "invert"]  
 )
 
+  
 class PowerLawCompression(nn.Module):
   '''
   Applies power law compression to each channel: 
@@ -74,25 +76,22 @@ class PowerLawCompression(nn.Module):
   init_value: float = 1.0
 
   def setup(self):
-    def initializer_ones(key, shape, dtype=jnp.float64):
-      kernel = jnp.ones([1,1,self.input_channels], dtype = jnp.float64)
-      kernel *= self.init_value
-      return kernel
-    
-    self.compression = nn.Conv(
-      features=self.input_channels, kernel_size=(1,), strides=(1,),
-      kernel_init = initializer_ones, 
-      dtype=jnp.float64, use_bias=False,
-      feature_group_count=self.input_channels, # Depth-wise convolution
-      )
+    self.alpha = self.variable("params", "alpha", lambda: jnp.ones(self.input_channels)*0.9)
 
   def __call__(self, x):
-    if len(x.shape) == 2:
-      x = self.compression(x.T).T
-    else:
-      x = jnp.transpose(x, (0, 2, 1))
-      x = self.compression(x)
-      x = jnp.transpose(x, (0, 2, 1))
+    if len(x.shape) == 2: # H x W
+      for i in range(x.shape[0]):
+        x = x.at[i,:].set(
+          jnp.abs(x[i,:]) ** self.alpha.value[i] * jnp.sign(x[i,:])
+        )
+
+
+      #x = self.compression(x.T).T
+    else: # B x H x W
+      # x = jnp.transpose(x, (0, 2, 1)) # B x W x H
+      # x = self.compression(x)
+      # x = jnp.transpose(x, (0, 2, 1)) # B x H x W
+      raise NotImplementedError
     return x
   
 class LateralInhibitionNetwork(nn.Module):
@@ -193,7 +192,9 @@ class AuditorySpectrogram(nn.Module):
 
     
   def __call__(self, x):
+    #print(x.shape)
     x = self.cochlearFilterbank(x)
+    #print(x.shape)
     x = self.compression(x)
     x = self.LIN(x)
     x = self.LeakyIntegration(x)
