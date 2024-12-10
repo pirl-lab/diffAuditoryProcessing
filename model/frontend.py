@@ -5,6 +5,8 @@ from jax import numpy as jnp
 import flax.linen as nn
 from jax.scipy.signal import stft, istft
 
+import os
+
 
 class CochlearFilter_Roex_fft(nn.Module):
   '''
@@ -16,7 +18,8 @@ class CochlearFilter_Roex_fft(nn.Module):
   sr: int = 16000  # Default sample rate
   
   def setup(self):
-    with np.load('cochlear_filter_params.npz') as data:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    with np.load(os.path.join(current_dir, 'cochlear_filter_params.npz')) as data:
       Bs, As = jnp.array(data['Bs']), jnp.array(data['As'])
 
     freqs = jnp.fft.fftfreq(self.input_length)*2*np.pi
@@ -51,15 +54,14 @@ class CochlearFilter_Roex_fft(nn.Module):
     return jnp.mean(jnp.stack(out), axis=0).real
   
 vCochlearFilter_Roex_fft = nn.vmap(
-CochlearFilter_Roex_fft,
-in_axes=(0,),  # Input x has shape (batch_size, input_length)
-out_axes=0,  # The output should also have a batch dimension
-variable_axes={'params': None},  # Do not vectorize over parameters
-split_rngs={'params': False},  # Do not split random number generators
-methods=["__call__", "invert"]  
+  CochlearFilter_Roex_fft,
+  in_axes=(0,),  # Input x has shape (batch_size, input_length)
+  out_axes=0,  # The output should also have a batch dimension
+  variable_axes={'params': None},  # Do not vectorize over parameters
+  split_rngs={'params': False},  # Do not split random number generators
+  methods=["__call__", "invert"]  
 )
-
-  
+ 
 class PowerLawCompression(nn.Module):
   '''
   Applies power law compression to each channel: 
@@ -171,7 +173,7 @@ class AuditorySpectrogram(nn.Module):
 
   1. Filterbank (roex)
   2. Compression (logistic or power law)
-  3. First difference; 4. ReLU (3 & 4 in one step)
+  3. First difference; 4. ReLU (3 & 4 in one step called `LIN`)
   5. Downsampling
   '''
   input_length: int # Used to calculate filter duration
